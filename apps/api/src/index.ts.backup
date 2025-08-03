@@ -1,0 +1,108 @@
+import Fastify from "fastify";
+import { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
+import "dotenv/config";
+
+// 데이터베이스 연결 import
+import { testConnection } from "@repo/database";
+
+// 플러그인과 라우터 import
+import plugins from "./plugins/index";
+import routes from "./routes/index";
+
+const isDev = process.env.NODE_ENV !== "production";
+
+const fastify = Fastify({
+  logger: isDev
+    ? {
+        level: "info",
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "HH:MM:ss",
+            ignore: "pid,hostname",
+          },
+        },
+      }
+    : true,
+}).withTypeProvider<TypeBoxTypeProvider>();
+
+// 데이터베이스 연결 테스트
+async function initializeDatabase() {
+  try {
+    const isConnected = await testConnection();
+    if (!isConnected) {
+      throw new Error("Database connection failed");
+    }
+    console.log("✅ Database initialized successfully");
+  } catch (error) {
+    console.error("❌ Database initialization failed:", error);
+    process.exit(1);
+  }
+}
+
+// 플러그인 등록
+await fastify.register(plugins);
+
+// 라우트 등록
+await fastify.register(routes);
+
+// 에러 핸들러
+fastify.setErrorHandler((error, request, reply) => {
+  fastify.log.error(error);
+
+  reply.status(500).send({
+    success: false,
+    error: "Internal Server Error",
+    message: isDev ? error.message : "Something went wrong",
+  });
+});
+
+// 404 핸들러
+fastify.setNotFoundHandler((request, reply) => {
+  reply.status(404).send({
+    success: false,
+    error: "Not Found",
+    message: `Route ${request.method} ${request.url} not found`,
+  });
+});
+
+// 서버 시작
+const start = async () => {
+  try {
+    // 데이터베이스 초기화
+    await initializeDatabase();
+
+    const port = Number(process.env.PORT) || 3001;
+    const host = process.env.HOST || "0.0.0.0";
+
+    await fastify.listen({ port, host });
+
+    console.log("🚀 Server listening on http://localhost:" + port);
+    console.log("📚 API Documentation: http://localhost:" + port + "/docs");
+    console.log("🔌 WebSocket: ws://localhost:" + port + "/ws");
+    console.log("❤️  Health Check: http://localhost:" + port + "/health");
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
+};
+
+// Graceful shutdown
+const gracefulShutdown = async (signal: string) => {
+  fastify.log.info(`Received ${signal}, shutting down gracefully`);
+
+  try {
+    await fastify.close();
+    console.log("🔌 Database connection closed");
+    process.exit(0);
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+start();

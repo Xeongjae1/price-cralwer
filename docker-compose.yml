@@ -1,0 +1,90 @@
+version: "3.8"
+
+services:
+  # PostgreSQL 17 (안정적인 최신 버전)
+  postgres:
+    image: postgres:latest
+    container_name: smartstore-postgres
+    environment:
+      POSTGRES_USER: crawler_user
+      POSTGRES_PASSWORD: crawler_password_2025
+      POSTGRES_DB: smartstore_crawler
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler_user -d smartstore_crawler"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # Redis 7 (최신 안정 버전)
+  redis:
+    image: redis:latest
+    container_name: smartstore-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # Redis Insight (Redis GUI - 선택사항)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: smartstore-redis-insight
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis_insight_data:/data
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      - redis
+
+  # pgAdmin (PostgreSQL GUI - 선택사항)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: smartstore-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@smartstore.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  redis_insight_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
